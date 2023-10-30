@@ -14,17 +14,18 @@ This project provides a flexible neural network framework designed for machine l
    git clone https://github.com/your-username/Galvatrone.git
    cd Galvatrone
 
-Compile and Run:
+2. **Compile and Run:**
 Compile the C++ code and run the executable.
+ ```bash
     g++ main.cpp -o galvatrone
 ./galvatrone
-
-Training and Evaluation:
+ ```
+3. **Training and Evaluation:**
 Follow the example in main.cpp 
 for training the network on a dataset and evaluating its performance.
 
 Code:
-
+ ```bash
 #include<iostream>
 #include<cmath>
 #include<cstdlib>
@@ -347,7 +348,7 @@ int main() {
     neuralNet.saveWeightsToFile("weights.txt");
     return 0;
 }
-
+ ```
 Contributing:
 Contributions are welcome!
  Feel free to open issues, suggest improvements,
