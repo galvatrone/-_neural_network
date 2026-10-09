@@ -272,7 +272,7 @@ public:
         }
 
         // Если ошибка достаточно мала, завершаем обучение
-        if (totalError < 0.01) {
+        if (totalError < 0.11) {
             cout << "Обучение завершено. Эпоха: " << epoch << ", Ошибка: " << totalError << endl;
             break;
         }
@@ -326,8 +326,10 @@ int main() {
     NeuralNetwork neuralNet(inputSize, hiddenSize1, hiddenSize2, outputSize);
     neuralNet.loadWeightsFromFile("weights.txt");
     // Пример входных данных и целевых значений
-    double (*inputs)[4] = new double[10][4] {{0, 0,1,1}, {1, 1,0,0}, {1, 0,0,1}, {1,0, 1,0},{0,1,0,1},{0,1,1,0},{0,1,1,1},{0,1,0,0},{0,1,2,3},{0,2,2,1}};
-    double (*targets)[1] = new double[10][1] {{1}, {1}, {1}, {0},{0},{1},{2},{1},{0},{1}};
+    double (*inputs)[4] = new double[10][4] {
+    {0,0,1,1}, {1,1,0,0}, {1,0,0,1}, {1,0,1,0}, {0,1,0,1},
+    {0,1,1,0}, {0,1,1,1}, {0,1,0,0}, {0,0,0,1}, {0,1,0,1}};
+    double (*targets)[1] = new double[10][1] {{1}, {1}, {1}, {0},{0},{1},{1},{1},{1},{0}};
 
     // Обучение сети
     const double* inputRows[10];

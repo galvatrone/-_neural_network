@@ -11,9 +11,15 @@ using namespace std;
 
 class NeuralNetwork {
 public:
-    NeuralNetwork(int inputSize, int hiddenSize1, int hiddenSize2, int outputSize)
-        : inputSize(inputSize), hiddenSize1(hiddenSize1), hiddenSize2(hiddenSize2), outputSize(outputSize),
-          weightsInputHidden1(nullptr), weightsHidden1Hidden2(nullptr), weightsHidden2Output(nullptr) {
+    NeuralNetwork(int inputSize, int hiddenSize1, int hiddenSize2, int outputSize): 
+        inputSize(inputSize), 
+        hiddenSize1(hiddenSize1), 
+        hiddenSize2(hiddenSize2), 
+        outputSize(outputSize),
+        weightsInputHidden1(nullptr), 
+        weightsHidden1Hidden2(nullptr), 
+        weightsHidden2Output(nullptr) {
+            
         if (inputSize <= 0 || hiddenSize1 <= 0 || hiddenSize2 <= 0 || outputSize <= 0) {
             throw invalid_argument("Размеры слоёв должны быть положительными.");
         }
