@@ -3,20 +3,40 @@
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
-#include <vector>
+#include <stdexcept>
 
 using namespace std;
 
 class NeuralNetwork {
 public:
     NeuralNetwork(int inputSize, int hiddenSize1, int hiddenSize2, int outputSize)
-        : inputSize(inputSize), hiddenSize1(hiddenSize1), hiddenSize2(hiddenSize2), outputSize(outputSize) {
-        weightsInputHidden1.resize(inputSize, vector<double>(hiddenSize1));
-        weightsHidden1Hidden2.resize(hiddenSize1, vector<double>(hiddenSize2));
-        weightsHidden2Output.resize(hiddenSize2, vector<double>(outputSize));
-
-        initializeRandomWeights();
+        : inputSize(inputSize), hiddenSize1(hiddenSize1), hiddenSize2(hiddenSize2), outputSize(outputSize),
+          weightsInputHidden1(nullptr), weightsHidden1Hidden2(nullptr), weightsHidden2Output(nullptr) {
+        if (inputSize <= 0 || hiddenSize1 <= 0 || hiddenSize2 <= 0 || outputSize <= 0) {
+            throw invalid_argument("Размеры слоёв должны быть положительными.");
+        }
+        try {
+            weightsInputHidden1 = allocateMatrix(inputSize, hiddenSize1);
+            weightsHidden1Hidden2 = allocateMatrix(hiddenSize1, hiddenSize2);
+            weightsHidden2Output = allocateMatrix(hiddenSize2, outputSize);
+            initializeRandomWeights();
+        } catch (...) {
+            deleteMatrix(weightsInputHidden1, inputSize);
+            deleteMatrix(weightsHidden1Hidden2, hiddenSize1);
+            deleteMatrix(weightsHidden2Output, hiddenSize2);
+            throw;
+        }
     }
+
+    ~NeuralNetwork() {
+        deleteMatrix(weightsInputHidden1, inputSize);
+        deleteMatrix(weightsHidden1Hidden2, hiddenSize1);
+        deleteMatrix(weightsHidden2Output, hiddenSize2);
+    }
+
+    // Массивы принадлежат сети: поверхностное копирование запрещено.
+    NeuralNetwork(const NeuralNetwork&) = delete;
+    NeuralNetwork& operator=(const NeuralNetwork&) = delete;
 
     void initializeRandomWeights() {
         srand(static_cast<unsigned int>(time(nullptr)));
@@ -48,13 +68,13 @@ public:
         return 1.0 / (1.0 + exp(-x));
     }
 
-    vector<double> forward(const vector<double>& inputs) {
-        vector<double> hiddenInputs1(hiddenSize1);
-        vector<double> hiddenOutputs1(hiddenSize1);
-        vector<double> hiddenInputs2(hiddenSize2);
-        vector<double> hiddenOutputs2(hiddenSize2);
-        vector<double> finalInputs(outputSize);
-        vector<double> finalOutputs(outputSize);
+    void forward(const double* inputs, double* finalOutputs) {
+        double* buffer = new double[2 * static_cast<size_t>(hiddenSize1) + 2 * static_cast<size_t>(hiddenSize2) + outputSize];
+        double* hiddenInputs1 = buffer;
+        double* hiddenOutputs1 = hiddenInputs1 + hiddenSize1;
+        double* hiddenInputs2 = hiddenOutputs1 + hiddenSize1;
+        double* hiddenOutputs2 = hiddenInputs2 + hiddenSize2;
+        double* finalInputs = hiddenOutputs2 + hiddenSize2;
 
         // Прямой проход через первый скрытый слой
         for (int i = 0; i < hiddenSize1; ++i) {
@@ -83,7 +103,7 @@ public:
             finalOutputs[i] = sigmoid(finalInputs[i]);
         }
 
-        return finalOutputs;
+        delete[] buffer;
     }
 
     void loadWeightsFromFile(const string& filename) {
@@ -145,21 +165,30 @@ public:
     }
 
 
-    void train(const vector<vector<double>>& inputs, const vector<vector<double>>& targets,
+    void train(const double* const* inputs, const double* const* targets, int exampleCount,
            double learningRate = 0.9, int epochs = 1000000000) {
+    // Рабочие массивы выделяются один раз на всё обучение.
+    double* buffer = new double[4 * static_cast<size_t>(hiddenSize1) + 4 * static_cast<size_t>(hiddenSize2) + 4 * static_cast<size_t>(outputSize)];
+    double* hiddenInputs1 = buffer;
+    double* hiddenOutputs1 = hiddenInputs1 + hiddenSize1;
+    double* hiddenInputs2 = hiddenOutputs1 + hiddenSize1;
+    double* hiddenOutputs2 = hiddenInputs2 + hiddenSize2;
+    double* finalInputs = hiddenOutputs2 + hiddenSize2;
+    double* finalOutputs = finalInputs + outputSize;
+    double* outputErrors = finalOutputs + outputSize;
+    double* outputDeltas = outputErrors + outputSize;
+    double* hiddenErrors2 = outputDeltas + outputSize;
+    double* hiddenDeltas2 = hiddenErrors2 + hiddenSize2;
+    double* hiddenErrors1 = hiddenDeltas2 + hiddenSize2;
+    double* hiddenDeltas1 = hiddenErrors1 + hiddenSize1;
+
     for (int epoch = 0; epoch < epochs; ++epoch) {
         double totalError = 0.0;
-        for (size_t example = 0; example < inputs.size(); ++example) {
-            const vector<double>& input = inputs[example];
-            const vector<double>& target = targets[example];
+        for (int example = 0; example < exampleCount; ++example) {
+            const double* input = inputs[example];
+            const double* target = targets[example];
 
             // Прямой проход
-            vector<double> hiddenInputs1(hiddenSize1);
-            vector<double> hiddenOutputs1(hiddenSize1);
-            vector<double> hiddenInputs2(hiddenSize2);
-            vector<double> hiddenOutputs2(hiddenSize2);
-            vector<double> finalInputs(outputSize);
-            vector<double> finalOutputs(outputSize);
 
             // Прямой проход через первый скрытый слой
             for (int i = 0; i < hiddenSize1; ++i) {
@@ -189,12 +218,6 @@ public:
             }
 
             // Обратное распространение ошибки
-            vector<double> outputErrors(outputSize);
-            vector<double> outputDeltas(outputSize);
-            vector<double> hiddenErrors2(hiddenSize2);
-            vector<double> hiddenDeltas2(hiddenSize2);
-            vector<double> hiddenErrors1(hiddenSize1);
-            vector<double> hiddenDeltas1(hiddenSize1);
 
             for (int i = 0; i < outputSize; ++i) {
                 outputErrors[i] = target[i] - finalOutputs[i];
@@ -256,18 +279,42 @@ public:
         // Сохранение весов после каждой эпохи
         //saveWeightsToFile("weights.txt");
     }
+    delete[] buffer;
 }
 
 
 private:
+
+    static double** allocateMatrix(int rows, int columns) {
+        double** matrix = new double*[rows]();
+        try {
+            for (int i = 0; i < rows; ++i) {
+                matrix[i] = new double[columns]();
+            }
+        } catch (...) {
+            deleteMatrix(matrix, rows);
+            throw;
+        }
+        return matrix;
+    }
+
+    static void deleteMatrix(double** matrix, int rows) {
+        if (matrix != nullptr) {
+            for (int i = 0; i < rows; ++i) {
+                delete[] matrix[i];
+            }
+            delete[] matrix;
+        }
+    }
+
      int inputSize;
     int hiddenSize1;
     int hiddenSize2;
     int outputSize;
 
-    vector<vector<double>> weightsInputHidden1;
-    vector<vector<double>> weightsHidden1Hidden2;
-    vector<vector<double>> weightsHidden2Output;
+    double** weightsInputHidden1;
+    double** weightsHidden1Hidden2;
+    double** weightsHidden2Output;
 };
 
 int main() {
@@ -279,18 +326,29 @@ int main() {
     NeuralNetwork neuralNet(inputSize, hiddenSize1, hiddenSize2, outputSize);
     neuralNet.loadWeightsFromFile("weights.txt");
     // Пример входных данных и целевых значений
-    vector<vector<double>> inputs = {{0, 0,1,1}, {1, 1,0,0}, {1, 0,0,1}, {1,0, 1,0},{0,1,0,1},{0,1,1,0},{0,1,1,1},{0,1,0,0},{0,1,2,3},{0,2,2,1}};
-    vector<vector<double>> targets = {{1}, {1}, {1}, {0},{0},{1},{2},{1},{0},{1}};
+    double (*inputs)[4] = new double[10][4] {{0, 0,1,1}, {1, 1,0,0}, {1, 0,0,1}, {1,0, 1,0},{0,1,0,1},{0,1,1,0},{0,1,1,1},{0,1,0,0},{0,1,2,3},{0,2,2,1}};
+    double (*targets)[1] = new double[10][1] {{1}, {1}, {1}, {0},{0},{1},{2},{1},{0},{1}};
 
     // Обучение сети
-    neuralNet.train(inputs, targets);
+    const double* inputRows[10];
+    const double* targetRows[10];
+    for (int i = 0; i < 10; ++i) {
+        inputRows[i] = inputs[i];
+        targetRows[i] = targets[i];
+    }
+    neuralNet.train(inputRows, targetRows, 10);
 
     // Оценка сети
     cout << "Результаты после обучения:" << endl;
-    for (const auto& input : inputs) {
-        vector<double> predictions = neuralNet.forward(input);
+    double* predictions = new double[outputSize];
+    for (int i = 0; i < 10; ++i) {
+        const double* input = inputs[i];
+        neuralNet.forward(input, predictions);
         cout << "Вход: " << input[0] << ", " << input[1] << ','<<input[2] << ", " << input[3] <<  " Выход: " << predictions[0] << endl;
     }
     neuralNet.saveWeightsToFile("weights.txt");
+    delete[] predictions;
+    delete[] inputs;
+    delete[] targets;
     return 0;
 }
