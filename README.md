@@ -1,337 +1,167 @@
-# Galvatrone — a neural network in C++
+# Galvatrone — letter recognition with a C++ neural network
 
 **English** | [Русский](README.ru.md)
 
-An educational implementation of a fully connected neural network with two
-hidden layers. It demonstrates prediction, learning through backpropagation,
-and saving learned weights. Storage uses raw dynamic arrays with `new[]` and
-`delete[]`; there is no `std::vector` or external machine learning library.
+This branch (`example`) applies the from-scratch neural network from the `main`
+branch to a real task: recognising the 26 capital letters of the English alphabet.
+It is the solution for COMP447 Project 1 (Letter Recognition Using an MLP).
+The lecturer allowed C++ instead of Python for this project.
 
-Read in order: [network model](#network-model), [learning logic](#learning-logic),
-[function reference](#function-reference), [build and run](#build-and-run),
-and [weight format](#weight-format).
+No machine learning libraries are used. The network, training, data split,
+scaling and evaluation are written by hand in C++11 with raw `new[]`/`delete[]`
+arrays, in the same style as the `main` branch. The `main` branch keeps the small
+learning version of the network; this branch is independent from it.
 
-## Network model
+The project report is in [REPORT.md](REPORT.md).
 
-The model is a feedforward multilayer perceptron. Information moves from input
-to output through weighted connections. Every neuron receives signals from all
-neurons in the previous layer. There are no recurrent connections or bias terms.
+## Data
 
-The demonstration uses this architecture:
+`ocrData.txt` is the UCI Letter Recognition dataset (Frey & Slate, 1991).
+It has 20 000 lines. Each line is one letter image described by 16 integer
+features from 0 to 15:
+
+```text
+T,2,8,3,5,1,8,13,0,6,6,10,8,0,8,0,8
+```
+
+The first value is the letter, the next 16 are the features. The images were
+made from 20 fonts, and every letter was randomly distorted. The pixels are not
+in the file; only the 16 numbers computed from them:
+
+| # | Name | Meaning |
+| --- | --- | --- |
+| 1 | x-box | horizontal position of the box around the letter |
+| 2 | y-box | vertical position of the box |
+| 3 | width | width of the box |
+| 4 | high | height of the box |
+| 5 | onpix | number of black pixels (scaled) |
+| 6 | x-bar | mean x of black pixels |
+| 7 | y-bar | mean y of black pixels |
+| 8 | x2bar | variance of x |
+| 9 | y2bar | variance of y |
+| 10 | xybar | correlation of x and y |
+| 11 | x2ybr | mean of x·x·y |
+| 12 | xy2br | mean of x·y·y |
+| 13 | x-ege | mean number of edges from left to right |
+| 14 | xegvy | correlation of x-ege with y |
+| 15 | y-ege | mean number of edges from bottom to top |
+| 16 | yegvx | correlation of y-ege with x |
+
+All 26 letters have between 734 and 813 examples, so the classes are almost balanced.
+
+## Network
 
 ```mermaid
 flowchart LR
-    X["Input: 4 values"] --> H1["Hidden layer 1: 6 neurons"]
-    H1 --> H2["Hidden layer 2: 2 neurons"]
-    H2 --> Y["Output: 1 value"]
+    X["Input: 16 features"] --> H1["Hidden layer 1: 32 neurons"]
+    H1 --> H2["Hidden layer 2: 52 neurons"]
+    H2 --> Y["Output: 26 neurons, one per letter"]
 ```
 
-Layer sizes are constructor arguments. The class supports different sizes,
-while the example arrays in both `main()` functions are written for `4 → 6 → 2 → 1`.
+- 32 neurons in the first hidden layer: two for each input feature.
+- 52 neurons in the second hidden layer: two for each letter.
+- 26 outputs: output `k` is the letter `'A' + k`. The predicted letter is the
+  output with the largest value.
+- Every neuron has a weight for each neuron of the previous layer and a bias.
+- Activation: sigmoid in all layers.
+- Training: backpropagation with stochastic gradient descent, one example at a time,
+  learning rate `0.1`, `500` epochs.
 
-| Matrix | Meaning | Default dimensions |
-| --- | --- | --- |
-| `weightsInputHidden1` | Input → first hidden layer | `4 × 6` |
-| `weightsHidden1Hidden2` | First → second hidden layer | `6 × 2` |
-| `weightsHidden2Output` | Second hidden layer → output | `2 × 1` |
+The network has `16·32 + 32·52 + 52·26 = 3528` weights and `32 + 52 + 26 = 110`
+biases, `3638` trainable numbers in total.
 
-These matrices hold `38` trainable weights. Each is a `double**` whose rows are
-allocated separately. A weight controls how strongly one neuron affects the next.
+## How `NN_Training` works
 
-### What a neuron computes
+1. Creates the `16 → 32 → 52 → 26` network. If `letters_weights.txt` exists, it
+   loads it and continues training. If the file does not exist, it starts from
+   random weights. If the file exists but is broken, it stops without overwriting it.
+2. Reads `ocrData.txt`. Letters become class numbers `A=0 … Z=25`.
+3. Splits the data 80% / 20% with stratification: each letter is shuffled and split
+   separately, so every letter has the same share in train and test. The training
+   part is shuffled once more so letters are mixed.
+4. Scales every feature to `[0, 1]` with `(x − min) / (max − min)`. `min` and `max`
+   are found **on the training data only** and saved to `letters_scaling.txt`.
+5. Builds one-hot targets: `1` for the correct letter, `0` for the other 25.
+6. Trains on the training data. Every 10 epochs it prints the total absolute error
+   and saves the weights.
+7. Prints training accuracy, test accuracy, the labelled 26×26 confusion matrix
+   for the test data and the 10 most frequent mistakes. Saves the weights and
+   `confusion_matrix.csv`.
 
-For neuron `j`, the code multiplies each incoming value by its weight, adds the
-products, then applies the sigmoid activation function:
+The random weights and the split both use the fixed seed `SEED = 31415962`,
+so a run from scratch gives the same result every time on the same system.
+`rand()` is different in different C libraries, so Windows and Linux can give
+slightly different numbers.
+
+## How `nn_main` works
+
+Loads `letters_weights.txt` and `letters_scaling.txt`, reads the number of examples
+and then 16 features for each example (a line of `ocrData.txt` without the letter).
+It scales the input in the same way as training and prints the predicted letter:
 
 ```text
-z[j] = sum over i of (a_previous[i] * weight[i][j])
-a[j] = sigmoid(z[j]) = 1 / (1 + exp(-z[j]))
+Enter the number of examples: 1
+Enter 16 features for example 1: 2 8 3 5 1 8 13 0 6 6 10 8 0 8 0 8
+Input: 2,8,3,5,1,8,13,0,6,6,10,8,0,8,0,8 Prediction: T (output 0.999946)
 ```
 
-At the first hidden layer, `a_previous` is the input array. At later layers,
-it is the preceding layer's output. Sigmoid maps a sum into the range from `0`
-to `1` and makes the mapping nonlinear. Its derivative is `a * (1 - a)`.
-
-A prediction is a numeric output, not an automatically selected class.
-The program prints the value directly; it applies no classification threshold.
-The demonstration inputs and targets contain only `0` and `1`, but the class
-accepts `double` values without automatically clipping or normalizing them.
-
-## Learning logic
-
-Prediction and training use the same forward calculation. Prediction leaves
-weights unchanged. Training compares the result with a target and adjusts weights.
-
-### Forward pass
-
-1. Compute weighted sums and sigmoid outputs for the first hidden layer.
-2. Use those outputs to calculate the second hidden layer.
-3. Use the second hidden layer to calculate the final output.
-
-The variables named `hiddenInputs1`, `hiddenInputs2`, and `finalInputs` contain
-weighted sums before activation. `hiddenOutputs1`, `hiddenOutputs2`, and
-`finalOutputs` contain the activated values.
-
-### Backpropagation and weight updates
-
-For each training example, the implementation computes:
-
-```text
-outputError[j] = target[j] - output[j]
-outputDelta[j] = outputError[j] * output[j] * (1 - output[j])
-
-hiddenError[i] = sum over j of (nextDelta[j] * outgoingWeight[i][j])
-hiddenDelta[i] = hiddenError[i] * hiddenOutput[i] * (1 - hiddenOutput[i])
-
-weight[i][j] += learningRate * previousOutput[i] * nextDelta[j]
-```
-
-The first hidden layer's `previousOutput` is the original input. Deltas are
-computed from output back to the first hidden layer, before any weight is changed.
-The code then updates the hidden-to-hidden, input-to-hidden, and hidden-to-output
-matrices using those deltas.
-
-These updates implement gradient descent on half the sum of squared output errors
-for each example. The console displays a different metric: the **sum of absolute
-errors** accumulated across examples and outputs during an epoch, without averaging.
-Since weights change between examples, this is a running training metric, not a
-separate evaluation of one fixed model after the epoch.
-
-Weights are updated after every example: this is online training, or stochastic
-gradient descent with a batch size of one. Examples keep their original order;
-there is no shuffling. An **epoch** is one pass through all examples.
-
-| Training setting | Default |
-| --- | --- |
-| Learning rate | `0.9` |
-| Maximum epochs | `1 000 000 000` |
-| Early stopping | Accumulated absolute error less than `0.01` |
-| Logging and weight saving | Every `10 000` epochs, including epoch `0` |
-
-### The current example data
-
-`NN_Training.cpp` contains ten examples. Values above `1` in the original data
-were replaced with `1`. The input `[0, 1, 1, 1]` now occurs three times with
-respectively `1`, `0`, and `1` as its target. One fixed model gives identical
-outputs for identical inputs, so it cannot satisfy these conflicting targets
-simultaneously. Convergence to the stopping threshold is not guaranteed, and the
-default run may continue to its very large epoch limit.
-
-For a short run, change the training call in `NN_Training.cpp` and rebuild:
-
-```cpp
-neuralNet.train(inputRows, targetRows, 10, 0.9, 1000);
-```
-
-For consistent training data, identical inputs should have identical targets.
-
-## Function reference
-
-The class is defined separately in [NN_Training.cpp](NN_Training.cpp) and
-[nn_main.cpp](nn_main.cpp). Both files contain a `main()`; build them separately.
-
-| Function | Training program | Prediction program |
-| --- | --- | --- |
-| Constructor and destructor | Yes | Yes |
-| `sigmoid` | Yes | Yes |
-| `forward` | Yes | Yes |
-| `loadWeightsFromFile` | Yes | Yes |
-| `initializeRandomWeights` | Yes | — |
-| `train` | Yes | — |
-| `saveWeightsToFile` | Yes | — |
-| Private `allocateMatrix` and `deleteMatrix` | Yes | Yes |
-
-### `NeuralNetwork(inputSize, hiddenSize1, hiddenSize2, outputSize)`
-
-Stores the four layer sizes and allocates the three weight matrices. All sizes
-must be positive; otherwise it throws `std::invalid_argument`. If allocation
-fails partway through, already allocated matrices are released before rethrowing.
-The training version initializes weights randomly; the prediction version starts
-with zero weights and expects weights to be loaded from a file.
-
-### `~NeuralNetwork()` and copying
-
-The destructor frees every row and then each matrix's array of row pointers.
-Copy construction and copy assignment are explicitly deleted: two network objects
-must not own and free the same arrays. Input, target, and result arrays belong
-to the caller and are not freed by the network.
-
-### `void initializeRandomWeights()`
-
-Available in the training version. Fills all three matrices with values drawn
-uniformly from `[-1, 1)` using `std::mt19937` and `uniform_real_distribution`.
-The generator is created once per program, seeded from `random_device` mixed
-with the current time, so networks created one after another get different
-weights. Calling it again replaces existing weights.
-
-### `double sigmoid(double x)`
-
-Returns `1.0 / (1.0 + exp(-x))`. Used after each weighted sum in both hidden layers
-and the output layer. Backpropagation uses the derivative of this function.
-
-### `void forward(const double* inputs, double* finalOutputs)`
-
-Runs the three-stage forward pass and writes the prediction into the caller's
-output array. It returns no array and does not change weights. Temporary weighted
-sums and hidden activations share one dynamically allocated buffer, freed before
-returning.
-
-`inputs` must contain at least `inputSize` values; `finalOutputs` must have space
-for `outputSize` values. Pointers and lengths are not validated automatically.
-
-### `void train(const double* const* inputs, const double* const* targets, int exampleCount, double learningRate = 0.9, int epochs = 1000000000)`
-
-Available in the training version. Receives arrays of row pointers for examples
-and targets. Both pointer arrays need `exampleCount` rows; each input row needs
-`inputSize` values and each target row needs `outputSize` values.
-
-Allocates one work buffer for the entire call, then repeats forward calculation,
-backpropagation, and weight updates for each example in each epoch. It logs and
-saves to `weights.txt` every 10 000 epochs and stops when the accumulated absolute
-error is below `0.01` or the epoch limit is reached. The work buffer is released
-after the loop, including after early stopping.
-
-The forward calculation is written directly inside `train`; it does not call
-`forward`, because learning also needs the intermediate activations. Data pointers,
-row lengths, example count, learning rate, and epoch count are not validated here.
-
-### `bool loadWeightsFromFile(const string& filename)`
-
-Reads the three weight matrices in order from a whitespace-separated text file.
-Values are first read into a temporary array and copied into the network only
-after the whole file has been checked. The file must contain exactly
-`weightCount()` finite numbers and nothing else. Returns `true` on success.
-If the file cannot be opened, has too few or too many values, or contains
-non-numeric data, prints the reason to `cerr`, returns `false`, and leaves the
-current weights unchanged. Too many values usually means the file belongs to
-a different architecture.
-
-### `size_t weightCount() const`
-
-Returns the number of weights for the current architecture (see
-[weight format](#weight-format)).
-
-### `bool saveWeightsToFile(const string& filename) const`
-
-Available in the training version. Writes all weights in matrix order, one matrix
-per line, with `max_digits10` precision so that loading restores exactly the same
-`double` values. Layer sizes are not included. Data is written to `filename.tmp`
-first and then renamed over the target, so an interrupted save does not damage
-the previous file. Returns `true` on success; on an open, write, or rename failure
-prints the reason to `cerr` and returns `false`.
-
-### `static double** allocateMatrix(int rows, int columns)` — private
-
-Allocates a zero-initialized array of row pointers and then zero-initialized
-`double` rows. Returns the matrix. If a row allocation fails, releases all allocated
-rows and the pointer array before rethrowing the exception.
-
-### `static void deleteMatrix(double** matrix, int rows)` — private
-
-Accepts a matrix pointer and its row count, deletes each row, then deletes the
-pointer array. Does nothing for `nullptr`. Used during construction cleanup and
-destruction; it does not reset the caller's pointer.
-
-### `int main()` in `NN_Training.cpp`
-
-Creates the `4 → 6 → 2 → 1` network. If `weights.txt` exists, loads it and
-continues training from those weights; if the file exists but is invalid, returns
-`1` without overwriting it. If there is no file, training starts from random
-weights. Then prepares ten training examples and their row pointers, and calls
-`train`. After training it prints predictions for those examples, saves weights
-again (returning `1` if saving fails), and releases the example, target, and
-result arrays.
-
-### `int main()` in `nn_main.cpp`
-
-Attempts to set a Russian locale, creates the same architecture, and loads
-`weights.txt`. Reads a nonnegative example count and four numbers per example.
-After reading all examples, prints predictions and frees its arrays.
-
-Zero examples are allowed. A missing or invalid `weights.txt`, invalid counts,
-and invalid or incomplete numeric input print an error and return `1`. Valid
-input returns `0`.
+If a file is missing or broken, or the input is not a number, it prints an error
+and returns `1`.
 
 ## Build and run
 
-Use a C++11-or-newer compiler. These commands use `g++` on Linux. A UTF-8 terminal
-is needed for the programs' Russian console messages. No additional libraries are
-required. Run commands from the project root; filenames are case-sensitive.
-
 ```bash
-g++ -std=c++11 -Wall -Wextra -Wpedantic NN_Training.cpp -o NN_Training
-g++ -std=c++11 -Wall -Wextra -Wpedantic nn_main.cpp -o nn_main
-```
-
-To train using the built-in examples:
-
-```bash
-./NN_Training
-```
-
-If no weight file exists, training reports the open error and continues from
-random weights. Consider the short-run setting described above before starting
-the default billion-epoch demonstration.
-
-To predict using saved weights:
-
-```bash
+g++ -std=c++11 -O2 -Wall -Wextra -o NN_Training NN_Training.cpp
+g++ -std=c++11 -O2 -Wall -Wextra -o nn_main nn_main.cpp
+./NN_Training          # about 50 seconds for 500 epochs
 ./nn_main
 ```
 
-Example console input: two examples, each containing four values.
+Run the programs from the project folder: all files are read and written in the
+current directory. To train from scratch, delete `letters_weights.txt` first;
+otherwise every run adds 500 more epochs to the saved weights.
 
-```text
-2
-1 0 1 0
-0 1 0 1
-```
+## Results
 
-Results depend on the weights. A missing file produces an error message but the
-program continues with zero weights; its `0.5` outputs do not represent a learned
-model. Both programs use `weights.txt` relative to the current working directory.
+From scratch, seed `31415962`, 500 epochs, learning rate `0.1`
+(g++ 16.2.1, Linux):
 
-### Using the class in the training program
+| | Accuracy |
+| --- | --- |
+| Training (15 998 examples) | 93.70% |
+| Test (4 002 examples) | 91.08% |
 
-This example can replace the body of `main()` in `NN_Training.cpp`:
+The full analysis is in [REPORT.md](REPORT.md).
 
-```cpp
-NeuralNetwork neuralNet(4, 6, 2, 1);
-double input[] = {1, 0, 0, 1};
-double target[] = {1};
-const double* inputs[] = {input};
-const double* targets[] = {target};
+## Files
 
-neuralNet.train(inputs, targets, 1, 0.9, 1000);
-
-double result[1];
-neuralNet.forward(input, result);
-cout << "Prediction: " << result[0] << endl;
-neuralNet.saveWeightsToFile("weights.txt");
-return 0;
-```
-
-When changing the architecture, update both programs' constructor arguments and
-example array dimensions, rebuild, and prepare matching weights. Changing a layer
-size alone does not resize the hard-coded example arrays.
+| File | Content |
+| --- | --- |
+| `NN_Training.cpp` | network, data loading, split, scaling, training, evaluation |
+| `nn_main.cpp` | prediction of a letter from 16 features |
+| `ocrData.txt` | dataset |
+| `letters_weights.txt` | trained weights |
+| `letters_scaling.txt` | `min` (line 1) and `max` (line 2) of each feature on the training data |
+| `confusion_matrix.csv` | test confusion matrix; rows are true letters, columns are predicted letters |
+| `REPORT.md` | project report |
 
 ## Weight format
 
-The file stores whitespace-separated numbers in this order:
+`letters_weights.txt` contains whitespace-separated numbers, one group per line:
 
-1. `weightsInputHidden1`, row by row.
-2. `weightsHidden1Hidden2`, row by row.
-3. `weightsHidden2Output`, row by row.
+1. `weightsInputHidden1` (16 × 32), row by row.
+2. `weightsHidden1Hidden2` (32 × 52), row by row.
+3. `weightsHidden2Output` (52 × 26), row by row.
+4. `biasHidden1` (32), `biasHidden2` (52), `biasOutput` (26).
 
-The number of values is:
+Numbers are saved with full `double` precision. The file is written to
+`letters_weights.txt.tmp` first and then renamed, so an interrupted save does not
+damage the old file. Loading checks that there are exactly 3638 numbers.
 
-```text
-inputSize * hiddenSize1 + hiddenSize1 * hiddenSize2 + hiddenSize2 * outputSize
-```
+## Reference
 
-For the default architecture: `4 * 6 + 6 * 2 + 2 * 1 = 38`.
-The training program writes each matrix on its own line, but any whitespace
-works when loading. There are no headers, layer sizes, bias values, or other metadata.
-Training and prediction must agree on both dimensions and matrix order.
+P. W. Frey and D. J. Slate. Letter Recognition Using Holland-Style Adaptive
+Classifiers. *Machine Learning*, 6(2), 1991.
+Dataset: UCI Machine Learning Repository, Letter Recognition.
 
 [Читать на русском](README.ru.md)

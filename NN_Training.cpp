@@ -10,17 +10,17 @@
 
 using namespace std;
 
-// Моё любимое число. Один и тот же seed даёт одинаковые начальные веса
-// и одинаковое разбиение на train/test при каждом запуске.
+// My favourite number. The same seed gives the same initial weights
+// and the same train/test split on every run.
 const unsigned int SEED = 31415962;
 
-const string DATA_FILE = "ocrData.txt";               // буква + 16 признаков в строке
-const string WEIGHTS_FILE = "letters_weights.txt";    // веса этой задачи 
+const string DATA_FILE = "ocrData.txt";               // a letter + 16 features per line
+const string WEIGHTS_FILE = "letters_weights.txt";    // weights for this task
 const string CONFUSION_FILE = "confusion_matrix.csv";
-const string SCALING_FILE = "letters_scaling.txt";   // min и max признаков из train, нужны nn_main
+const string SCALING_FILE = "letters_scaling.txt";   // feature min and max from train, needed by nn_main
 
-const int FEATURE_COUNT = 16;     // признаков у каждой буквы
-const int CLASS_COUNT = 26;       // буквы A..Z
+const int FEATURE_COUNT = 16;     // features per letter
+const int CLASS_COUNT = 26;       // letters A..Z
 const double TEST_SHARE = 0.2;    // 80% train, 20% test
 
 const double LEARNING_RATE = 0.1;
@@ -33,7 +33,7 @@ public:
           weightsInputHidden1(nullptr), weightsHidden1Hidden2(nullptr), weightsHidden2Output(nullptr),
           biasHidden1(nullptr), biasHidden2(nullptr), biasOutput(nullptr) {
         if (inputSize <= 0 || hiddenSize1 <= 0 || hiddenSize2 <= 0 || outputSize <= 0) {
-            throw invalid_argument("Размеры слоёв должны быть положительными.");
+            throw invalid_argument("Layer sizes must be positive.");
         }
         try {
             weightsInputHidden1 = allocateMatrix(inputSize, hiddenSize1);
@@ -63,35 +63,35 @@ public:
         delete[] biasOutput;
     }
 
-    // Массивы принадлежат сети: поверхностное копирование запрещено.
+    // The network owns its arrays: shallow copying is not allowed.
     NeuralNetwork(const NeuralNetwork&) = delete;
     NeuralNetwork& operator=(const NeuralNetwork&) = delete;
 
     void initializeRandomWeights() {
         srand(SEED);
 
-        // Инициализация весов в пределах [-1, 1] для первого слоя
+        // Initialise weights in [-1, 1] for the first layer
         for (int i = 0; i < inputSize; ++i) {
             for (int j = 0; j < hiddenSize1; ++j) {
                 weightsInputHidden1[i][j] = (rand() % 200) / 100.0 - 1.0;
             }
         }
 
-        // Инициализация весов в пределах [-1, 1] для второго слоя
+        // Initialise weights in [-1, 1] for the second layer
         for (int i = 0; i < hiddenSize1; ++i) {
             for (int j = 0; j < hiddenSize2; ++j) {
                 weightsHidden1Hidden2[i][j] = (rand() % 200) / 100.0 - 1.0;
             }
         }
 
-        // Инициализация весов в пределах [-1, 1] для выходного слоя
+        // Initialise weights in [-1, 1] for the output layer
         for (int i = 0; i < hiddenSize2; ++i) {
             for (int j = 0; j < outputSize; ++j) {
                 weightsHidden2Output[i][j] = (rand() % 200) / 100.0 - 1.0;
             }
         }
 
-        // Смещения (bias) — тем же способом
+        // Biases are initialised the same way
         for (int i = 0; i < hiddenSize1; ++i) biasHidden1[i] = (rand() % 200) / 100.0 - 1.0;
         for (int i = 0; i < hiddenSize2; ++i) biasHidden2[i] = (rand() % 200) / 100.0 - 1.0;
         for (int i = 0; i < outputSize; ++i) biasOutput[i] = (rand() % 200) / 100.0 - 1.0;
@@ -110,7 +110,7 @@ public:
         double* hiddenOutputs2 = hiddenInputs2 + hiddenSize2;
         double* finalInputs = hiddenOutputs2 + hiddenSize2;
 
-        // Прямой проход через первый скрытый слой
+        // Forward pass through the first hidden layer
         for (int i = 0; i < hiddenSize1; ++i) {
             hiddenInputs1[i] = biasHidden1[i];
             for (int j = 0; j < inputSize; ++j) {
@@ -119,7 +119,7 @@ public:
             hiddenOutputs1[i] = sigmoid(hiddenInputs1[i]);
         }
 
-        // Прямой проход через второй скрытый слой
+        // Forward pass through the second hidden layer
         for (int i = 0; i < hiddenSize2; ++i) {
             hiddenInputs2[i] = biasHidden2[i];
             for (int j = 0; j < hiddenSize1; ++j) {
@@ -128,7 +128,7 @@ public:
             hiddenOutputs2[i] = sigmoid(hiddenInputs2[i]);
         }
 
-        // Прямой проход через выходной слой
+        // Forward pass through the output layer
         for (int i = 0; i < outputSize; ++i) {
             finalInputs[i] = biasOutput[i];
             for (int j = 0; j < hiddenSize2; ++j) {
@@ -140,12 +140,12 @@ public:
         delete[] buffer;
     }
 
-    // Читает веса во временный массив и копирует их в сеть только после полной
-    // проверки: при любой ошибке текущие веса остаются без изменений.
+    // Reads the weights into a temporary array and copies them into the network only
+    // after the whole file is checked: on any error the current weights stay unchanged.
     bool loadWeightsFromFile(const string& filename) {
         ifstream file(filename);
         if (!file.is_open()) {
-            cerr << "Не удалось открыть файл с весами: " << filename << endl;
+            cerr << "Cannot open weights file: " << filename << endl;
             return false;
         }
 
@@ -153,21 +153,21 @@ public:
         double* values = new double[count];
         for (size_t k = 0; k < count; ++k) {
             if (!(file >> values[k]) || !isfinite(values[k])) {
-                cerr << "Файл весов повреждён или содержит меньше " << count << " чисел: " << filename << endl;
+                cerr << "Weights file is damaged or has fewer than " << count << " numbers: " << filename << endl;
                 delete[] values;
                 return false;
             }
         }
         double extra;
         if (file >> extra || !file.eof()) {
-            cerr << "В файле весов больше " << count << " чисел или лишние данные"
-                 << " (другая архитектура сети?): " << filename << endl;
+            cerr << "Weights file has more than " << count << " numbers or extra data"
+                 << " (different network architecture?): " << filename << endl;
             delete[] values;
             return false;
         }
 
         size_t k = 0;
-        // Порядок: три матрицы весов, затем три массива смещений.
+        // Order: three weight matrices, then three bias arrays.
         for (int i = 0; i < inputSize; ++i)
             for (int j = 0; j < hiddenSize1; ++j)
                 weightsInputHidden1[i][j] = values[k++];
@@ -185,7 +185,7 @@ public:
         return true;
     }
 
-    // Количество чисел в файле весов для текущей архитектуры (веса + смещения).
+    // Number of values in the weights file for this architecture (weights + biases).
     size_t weightCount() const {
         return static_cast<size_t>(inputSize) * hiddenSize1
              + static_cast<size_t>(hiddenSize1) * hiddenSize2
@@ -193,21 +193,21 @@ public:
              + hiddenSize1 + hiddenSize2 + outputSize;
     }
 
-    // Пишет веса во временный файл и заменяет им старый только после успешной
-    // записи: если программу прервут на середине, прежний файл не испортится.
+    // Writes the weights to a temporary file and replaces the old file only after a
+    // successful write: if the program is stopped halfway, the old file stays intact.
     bool saveWeightsToFile(const string& filename) const {
         const string tempName = filename + ".tmp";
         {
             ofstream file(tempName);
             if (!file.is_open()) {
-                cerr << "Не удалось создать файл весов: " << tempName << endl;
+                cerr << "Cannot create weights file: " << tempName << endl;
                 return false;
             }
-            // Достаточно цифр, чтобы при загрузке получить точно то же число double.
+            // Enough digits to load back exactly the same double value.
             file.precision(numeric_limits<double>::max_digits10);
 
-            // Каждая матрица и каждый массив смещений — на своей строке,
-            // порядок как в loadWeightsFromFile.
+            // Each matrix and each bias array on its own line,
+            // in the same order as loadWeightsFromFile.
             writeMatrix(file, weightsInputHidden1, inputSize, hiddenSize1);
             writeMatrix(file, weightsHidden1Hidden2, hiddenSize1, hiddenSize2);
             writeMatrix(file, weightsHidden2Output, hiddenSize2, outputSize);
@@ -217,16 +217,16 @@ public:
 
             file.close();
             if (file.fail()) {
-                cerr << "Ошибка записи файла весов: " << tempName << endl;
+                cerr << "Error writing weights file: " << tempName << endl;
                 remove(tempName.c_str());
                 return false;
             }
         }
         if (rename(tempName.c_str(), filename.c_str()) != 0) {
-            // В Windows rename не заменяет существующий файл: удаляем и пробуем снова.
+            // On Windows rename does not replace an existing file: delete it and try again.
             remove(filename.c_str());
             if (rename(tempName.c_str(), filename.c_str()) != 0) {
-                cerr << "Не удалось заменить файл весов: " << filename << endl;
+                cerr << "Cannot replace weights file: " << filename << endl;
                 remove(tempName.c_str());
                 return false;
             }
@@ -237,7 +237,7 @@ public:
 
     void train(const double* const* inputs, const double* const* targets, int exampleCount,
            double learningRate = 0.9, int epochs = 1000000000) {
-    // Рабочие массивы выделяются один раз на всё обучение.
+    // Work arrays are allocated once for the whole training.
     double* buffer = new double[4 * static_cast<size_t>(hiddenSize1) + 4 * static_cast<size_t>(hiddenSize2) + 4 * static_cast<size_t>(outputSize)];
     double* hiddenInputs1 = buffer;
     double* hiddenOutputs1 = hiddenInputs1 + hiddenSize1;
@@ -258,9 +258,9 @@ public:
             const double* input = inputs[example];
             const double* target = targets[example];
 
-            // Прямой проход
+            // Forward pass
 
-            // Прямой проход через первый скрытый слой
+            // Forward pass through the first hidden layer
             for (int i = 0; i < hiddenSize1; ++i) {
                 hiddenInputs1[i] = biasHidden1[i];
                 for (int j = 0; j < inputSize; ++j) {
@@ -269,7 +269,7 @@ public:
                 hiddenOutputs1[i] = sigmoid(hiddenInputs1[i]);
             }
 
-            // Прямой проход через второй скрытый слой
+            // Forward pass through the second hidden layer
             for (int i = 0; i < hiddenSize2; ++i) {
                 hiddenInputs2[i] = biasHidden2[i];
                 for (int j = 0; j < hiddenSize1; ++j) {
@@ -278,7 +278,7 @@ public:
                 hiddenOutputs2[i] = sigmoid(hiddenInputs2[i]);
             }
 
-            // Прямой проход через выходной слой
+            // Forward pass through the output layer
             for (int i = 0; i < outputSize; ++i) {
                 finalInputs[i] = biasOutput[i];
                 for (int j = 0; j < hiddenSize2; ++j) {
@@ -287,7 +287,7 @@ public:
                 finalOutputs[i] = sigmoid(finalInputs[i]);
             }
 
-            // Обратное распространение ошибки
+            // Backpropagation
 
             for (int i = 0; i < outputSize; ++i) {
                 outputErrors[i] = target[i] - finalOutputs[i];
@@ -310,7 +310,7 @@ public:
                 hiddenDeltas1[i] = hiddenErrors1[i] * hiddenOutputs1[i] * (1.0 - hiddenOutputs1[i]);
             }
 
-            // Обновление весов
+            // Update weights
             for (int i = 0; i < hiddenSize1; ++i) {
                 for (int j = 0; j < hiddenSize2; ++j) {
                     weightsHidden1Hidden2[i][j] += learningRate * hiddenOutputs1[i] * hiddenDeltas2[j];
@@ -329,29 +329,29 @@ public:
                 }
             }
 
-            // Обновление смещений: у bias вход всегда равен 1
+            // Update biases: the input of a bias is always 1
             for (int i = 0; i < hiddenSize1; ++i) biasHidden1[i] += learningRate * hiddenDeltas1[i];
             for (int i = 0; i < hiddenSize2; ++i) biasHidden2[i] += learningRate * hiddenDeltas2[i];
             for (int i = 0; i < outputSize; ++i) biasOutput[i] += learningRate * outputDeltas[i];
 
-            // Суммарная ошибка
+            // Total error
             for (int i = 0; i < outputSize; ++i) {
                 totalError += abs(outputErrors[i]);
             }
         }
 
-        // Вывод ошибки каждые 10 эпох
+        // Print the error every 10 epochs
         if (epoch % 10 == 0) {
-            cout << "Эпоха: " << epoch << ", Ошибка: " << totalError << endl;
+            cout << "Epoch: " << epoch << ", Error: " << totalError << endl;
             saveWeightsToFile(WEIGHTS_FILE);
         }
 
-        // Если ошибка достаточно мала, завершаем обучение
+        // Stop training when the error is small enough
         if (totalError < 0.01) {
-            cout << "Обучение завершено. Эпоха: " << epoch << ", Ошибка: " << totalError << endl;
+            cout << "Training finished. Epoch: " << epoch << ", Error: " << totalError << endl;
             break;
         }
-        // Сохранение весов после каждой эпохи
+        // Save the weights after every epoch
         //saveWeightsToFile(WEIGHTS_FILE);
     }
     delete[] buffer;
@@ -406,17 +406,17 @@ private:
 };
 
 
-// Читает файл с буквами: в каждой строке буква и FEATURE_COUNT целых признаков
-// через запятую, например "T,2,8,3,5,1,8,13,0,6,6,10,8,0,8,0,8".
-// Возвращает количество примеров или -1 при ошибке.
+// Reads the letters file: each line is a letter and FEATURE_COUNT integer features
+// separated by commas, for example "T,2,8,3,5,1,8,13,0,6,6,10,8,0,8,0,8".
+// Returns the number of examples or -1 on error.
 int loadDataset(const string& filename, double (*&features)[FEATURE_COUNT], int*& labels) {
     ifstream file(filename);
     if (!file.is_open()) {
-        cerr << "Не удалось открыть файл с данными: " << filename << endl;
+        cerr << "Cannot open data file: " << filename << endl;
         return -1;
     }
 
-    // Первый проход: считаем строки, чтобы выделить массивы нужного размера.
+    // First pass: count the lines to allocate arrays of the right size.
     int count = 0;
     string line;
     while (getline(file, line)) {
@@ -428,19 +428,19 @@ int loadDataset(const string& filename, double (*&features)[FEATURE_COUNT], int*
     features = new double[count][FEATURE_COUNT];
     labels = new int[count];
 
-    // Второй проход: разбираем строки.
+    // Second pass: parse the lines.
     for (int n = 0; n < count; ++n) {
         char letter, comma;
         if (!(file >> letter) || letter < 'A' || letter > 'Z') {
-            cerr << "Строка " << n + 1 << ": ожидалась буква A-Z." << endl;
+            cerr << "Line " << n + 1 << ": expected a letter A-Z." << endl;
             delete[] features;
             delete[] labels;
             return -1;
         }
-        labels[n] = letter - 'A';   // кодирование метки: A=0, B=1, ..., Z=25
+        labels[n] = letter - 'A';   // label encoding: A=0, B=1, ..., Z=25
         for (int j = 0; j < FEATURE_COUNT; ++j) {
             if (!(file >> comma >> features[n][j]) || comma != ',') {
-                cerr << "Строка " << n + 1 << ": ожидалось " << FEATURE_COUNT << " чисел через запятую." << endl;
+                cerr << "Line " << n + 1 << ": expected " << FEATURE_COUNT << " comma-separated numbers." << endl;
                 delete[] features;
                 delete[] labels;
                 return -1;
@@ -450,9 +450,9 @@ int loadDataset(const string& filename, double (*&features)[FEATURE_COUNT], int*
     return count;
 }
 
-// Стратифицированное разбиение: для каждой буквы отдельно перемешиваем её примеры
-// и отправляем долю testShare в test, остальное в train. Так доли букв в train
-// и test такие же, как во всём наборе. Перемешивание использует SEED.
+// Stratified split: the examples of each letter are shuffled separately, a testShare
+// part goes to test and the rest to train. So every letter has the same share in
+// train and test as in the whole dataset. The shuffle uses SEED.
 void stratifiedSplit(const int* labels, int count, double testShare,
                      int* trainIndex, int& trainCount, int* testIndex, int& testCount) {
     srand(SEED);
@@ -461,12 +461,12 @@ void stratifiedSplit(const int* labels, int count, double testShare,
     int* classIndex = new int[count];
 
     for (int c = 0; c < CLASS_COUNT; ++c) {
-        // Номера всех примеров буквы c
+        // Indexes of all examples of letter c
         int classSize = 0;
         for (int n = 0; n < count; ++n) {
             if (labels[n] == c) classIndex[classSize++] = n;
         }
-        // Перемешивание Фишера–Йетса
+        // Fisher-Yates shuffle
         for (int i = classSize - 1; i > 0; --i) {
             int j = rand() % (i + 1);
             int temp = classIndex[i]; classIndex[i] = classIndex[j]; classIndex[j] = temp;
@@ -478,8 +478,8 @@ void stratifiedSplit(const int* labels, int count, double testShare,
         }
     }
 
-    // После разбиения train идёт по буквам подряд (все A, потом все B...).
-    // Перемешиваем, иначе сеть будет учить буквы по очереди и забывать прошлые.
+    // After the split, train is ordered by letter (all A, then all B...).
+    // Shuffle it, otherwise the network learns one letter at a time and forgets the previous ones.
     for (int i = trainCount - 1; i > 0; --i) {
         int j = rand() % (i + 1);
         int temp = trainIndex[i]; trainIndex[i] = trainIndex[j]; trainIndex[j] = temp;
@@ -487,10 +487,10 @@ void stratifiedSplit(const int* labels, int count, double testShare,
     delete[] classIndex;
 }
 
-// Масштабирование в [0, 1]: min и max каждого признака ищем ТОЛЬКО по train,
-// а применяем ко всем примерам (и train, и test).
-// Найденные min и max возвращаются через minValues и maxValues, чтобы их можно было
-// сохранить и так же масштабировать новые буквы в nn_main.
+// Scaling to [0, 1]: min and max of each feature are found ONLY on train
+// and applied to all examples (train and test).
+// The min and max are returned in minValues and maxValues so they can be saved
+// and new letters can be scaled the same way in nn_main.
 void scaleFeatures(double (*features)[FEATURE_COUNT], int count, const int* trainIndex, int trainCount,
                    double* minValues, double* maxValues) {
     for (int j = 0; j < FEATURE_COUNT; ++j) {
@@ -514,11 +514,11 @@ void scaleFeatures(double (*features)[FEATURE_COUNT], int count, const int* trai
 
 
 
-// Сохраняет min (первая строка) и max (вторая строка) каждого признака.
+// Saves min (first line) and max (second line) of each feature.
 bool saveScaling(const double* minValues, const double* maxValues, const string& filename) {
     ofstream file(filename);
     if (!file.is_open()) {
-        cerr << "Не удалось создать файл: " << filename << endl;
+        cerr << "Cannot create file: " << filename << endl;
         return false;
     }
     for (int j = 0; j < FEATURE_COUNT; ++j) file << minValues[j] << ' ';
@@ -529,7 +529,7 @@ bool saveScaling(const double* minValues, const double* maxValues, const string&
 }
 
 
-// Номер выхода с наибольшим значением — это и есть предсказанная буква.
+// The output with the largest value is the predicted letter.
 int predictClass(NeuralNetwork& neuralNet, const double* input, double* outputs) {
     neuralNet.forward(input, outputs);
     int best = 0;
@@ -539,8 +539,8 @@ int predictClass(NeuralNetwork& neuralNet, const double* input, double* outputs)
     return best;
 }
 
-// Точность на выбранных примерах. Если confusion не nullptr, заполняет матрицу
-// ошибок: строка — настоящая буква, столбец — предсказанная.
+// Accuracy on the selected examples. If confusion is not nullptr, fills the confusion
+// matrix: row = true letter, column = predicted letter.
 double accuracy(NeuralNetwork& neuralNet, double (*features)[FEATURE_COUNT], const int* labels,
                 const int* index, int count, int (*confusion)[CLASS_COUNT]) {
     double outputs[CLASS_COUNT];
@@ -555,7 +555,7 @@ double accuracy(NeuralNetwork& neuralNet, double (*features)[FEATURE_COUNT], con
 }
 
 void printConfusionMatrix(int (*confusion)[CLASS_COUNT]) {
-    cout << "Матрица ошибок на test (строка — настоящая буква, столбец — предсказанная):" << endl;
+    cout << "Test confusion matrix (row = true letter, column = predicted letter):" << endl;
     cout << "   ";
     for (int j = 0; j < CLASS_COUNT; ++j) cout << setw(4) << static_cast<char>('A' + j);
     cout << endl;
@@ -569,7 +569,7 @@ void printConfusionMatrix(int (*confusion)[CLASS_COUNT]) {
 bool saveConfusionMatrix(int (*confusion)[CLASS_COUNT], const string& filename) {
     ofstream file(filename);
     if (!file.is_open()) {
-        cerr << "Не удалось создать файл: " << filename << endl;
+        cerr << "Cannot create file: " << filename << endl;
         return false;
     }
     file << "true\\predicted";
@@ -583,9 +583,9 @@ bool saveConfusionMatrix(int (*confusion)[CLASS_COUNT], const string& filename) 
     return !file.fail();
 }
 
-// Самые частые путаницы: наибольшие числа вне диагонали матрицы ошибок.
+// Most frequent mistakes: the largest numbers outside the diagonal of the confusion matrix.
 void printTopConfusions(int (*confusion)[CLASS_COUNT], int top) {
-    cout << "Самые частые ошибки (настоящая -> предсказанная: сколько раз):" << endl;
+    cout << "Most frequent mistakes (true -> predicted: count):" << endl;
     bool used[CLASS_COUNT][CLASS_COUNT] = {};
     for (int k = 0; k < top; ++k) {
         int bestI = -1, bestJ = -1;
@@ -604,27 +604,27 @@ void printTopConfusions(int (*confusion)[CLASS_COUNT], int top) {
 
 
 int main() {
-    int inputSize = FEATURE_COUNT;   // 16 признаков
-    int hiddenSize1 = 32;            // по 2 нейрона на каждый входной признак
-    int hiddenSize2 = 52;            // по 2 нейрона на каждую букву
-    int outputSize = CLASS_COUNT;    // 26 букв
+    int inputSize = FEATURE_COUNT;   // 16 features
+    int hiddenSize1 = 32;            // 2 neurons for each input feature
+    int hiddenSize2 = 52;            // 2 neurons for each letter
+    int outputSize = CLASS_COUNT;    // 26 letters
 
     NeuralNetwork neuralNet(inputSize, hiddenSize1, hiddenSize2, outputSize);
 
-    // Если файла весов нет — начинаем со случайных весов из конструктора.
-    // Если файл есть, но испорчен — останавливаемся, чтобы не затереть его.
+    // No weights file: start from the random weights set by the constructor.
+    // The file exists but is broken: stop, so it is not overwritten.
     ifstream existingWeights(WEIGHTS_FILE);
     if (existingWeights.is_open()) {
         existingWeights.close();
         if (!neuralNet.loadWeightsFromFile(WEIGHTS_FILE)) {
             return 1;
         }
-        cout << "Продолжаем обучение с весов из " << WEIGHTS_FILE << endl;
+        cout << "Continuing training from weights in " << WEIGHTS_FILE << endl;
     } else {
-        cout << "Файл " << WEIGHTS_FILE << " не найден, начинаем со случайных весов (seed " << SEED << ")" << endl;
+        cout << "File " << WEIGHTS_FILE << " not found, starting from random weights (seed " << SEED << ")" << endl;
     }
 
-    // Загрузка примеров из файла
+    // Load the examples from the file
     double (*features)[FEATURE_COUNT] = nullptr;
     int* labels = nullptr;
     int count = loadDataset(DATA_FILE, features, labels);
@@ -632,7 +632,7 @@ int main() {
         return 1;
     }
 
-    // Разбиение 80/20 со стратификацией и масштабирование по train
+    // Stratified 80/20 split and scaling fitted on train
     int* trainIndex = new int[count];
     int* testIndex = new int[count];
     int trainCount = 0, testCount = 0;
@@ -643,15 +643,15 @@ int main() {
     if (!saveScaling(minValues, maxValues, SCALING_FILE)) {
         return 1;
     }
-    cout << "Примеров: " << count << ", train: " << trainCount << ", test: " << testCount << endl;
+    cout << "Examples: " << count << ", train: " << trainCount << ", test: " << testCount << endl;
 
-    // Целевые значения one-hot: у правильной буквы 1, у остальных 0
+    // One-hot targets: 1 for the correct letter, 0 for the others
     double (*targets)[CLASS_COUNT] = new double[count][CLASS_COUNT]();
     for (int n = 0; n < count; ++n) {
         targets[n][labels[n]] = 1.0;
     }
 
-    // Обучение сети только на train
+    // Train the network on train only
     const double** inputRows = new const double*[trainCount];
     const double** targetRows = new const double*[trainCount];
     for (int i = 0; i < trainCount; ++i) {
@@ -660,14 +660,14 @@ int main() {
     }
     neuralNet.train(inputRows, targetRows, trainCount, LEARNING_RATE, EPOCHS);
 
-    // Оценка сети
+    // Evaluate the network
     int (*confusion)[CLASS_COUNT] = new int[CLASS_COUNT][CLASS_COUNT]();
     double trainAccuracy = accuracy(neuralNet, features, labels, trainIndex, trainCount, nullptr);
     double testAccuracy = accuracy(neuralNet, features, labels, testIndex, testCount, confusion);
 
     cout << fixed << setprecision(2);
-    cout << "Точность на train: " << trainAccuracy * 100 << "%" << endl;
-    cout << "Точность на test:  " << testAccuracy * 100 << "%" << endl;
+    cout << "Train accuracy: " << trainAccuracy * 100 << "%" << endl;
+    cout << "Test accuracy:  " << testAccuracy * 100 << "%" << endl;
     printConfusionMatrix(confusion);
     printTopConfusions(confusion, 10);
 
