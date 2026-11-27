@@ -12,8 +12,6 @@ scaling and evaluation are written by hand in C++11 with raw `new[]`/`delete[]`
 arrays, in the same style as the `main` branch. The `main` branch keeps the small
 learning version of the network; this branch is independent from it.
 
-The project report is in [REPORT.md](REPORT.md).
-
 ## Data
 
 `ocrData.txt` is the UCI Letter Recognition dataset (Frey & Slate, 1991).
@@ -131,8 +129,6 @@ From scratch, seed `31415962`, 500 epochs, learning rate `0.1`
 | Training (15 998 examples) | 93.70% |
 | Test (4 002 examples) | 91.08% |
 
-The full analysis is in [REPORT.md](REPORT.md).
-
 ## Files
 
 | File | Content |
@@ -143,7 +139,6 @@ The full analysis is in [REPORT.md](REPORT.md).
 | `letters_weights.txt` | trained weights |
 | `letters_scaling.txt` | `min` (line 1) and `max` (line 2) of each feature on the training data |
 | `confusion_matrix.csv` | test confusion matrix; rows are true letters, columns are predicted letters |
-| `REPORT.md` | project report |
 
 ## Weight format
 
