@@ -105,7 +105,7 @@ there is no shuffling. An **epoch** is one pass through all examples.
 | --- | --- |
 | Learning rate | `0.9` |
 | Maximum epochs | `1 000 000 000` |
-| Early stopping | Accumulated absolute error less than `0.11` |
+| Early stopping | Accumulated absolute error less than `0.01` |
 | Logging and weight saving | Every `10 000` epochs, including epoch `0` |
 
 ### The current example data
@@ -158,11 +158,11 @@ to the caller and are not freed by the network.
 
 ### `void initializeRandomWeights()`
 
-Available in the training version. Seeds `rand()` using the current time and
-fills all three matrices using `(rand() % 200) / 100.0 - 1.0`: values range from
-`-1.00` to `0.99` in increments of `0.01`. Calling it again replaces existing
-weights. Seeding affects the global C random generator; networks initialized
-within the same second can receive identical initial weights.
+Available in the training version. Fills all three matrices with values drawn
+uniformly from `[-1, 1)` using `std::mt19937` and `uniform_real_distribution`.
+The generator is created once per program, seeded from `random_device` mixed
+with the current time, so networks created one after another get different
+weights. Calling it again replaces existing weights.
 
 ### `double sigmoid(double x)`
 
@@ -188,27 +188,37 @@ and targets. Both pointer arrays need `exampleCount` rows; each input row needs
 Allocates one work buffer for the entire call, then repeats forward calculation,
 backpropagation, and weight updates for each example in each epoch. It logs and
 saves to `weights.txt` every 10 000 epochs and stops when the accumulated absolute
-error is below `0.11` or the epoch limit is reached. The work buffer is released
+error is below `0.01` or the epoch limit is reached. The work buffer is released
 after the loop, including after early stopping.
 
 The forward calculation is written directly inside `train`; it does not call
 `forward`, because learning also needs the intermediate activations. Data pointers,
 row lengths, example count, learning rate, and epoch count are not validated here.
 
-### `void loadWeightsFromFile(const string& filename)`
+### `bool loadWeightsFromFile(const string& filename)`
 
 Reads the three weight matrices in order from a whitespace-separated text file.
-An open failure prints an error to `cerr` and leaves existing weights unchanged.
-The function returns no success flag. It does not validate the file's dimensions,
-number of values, or numeric contents; an invalid file can leave partially updated
-weights. Use a file produced for the same architecture.
+Values are first read into a temporary array and copied into the network only
+after the whole file has been checked. The file must contain exactly
+`weightCount()` finite numbers and nothing else. Returns `true` on success.
+If the file cannot be opened, has too few or too many values, or contains
+non-numeric data, prints the reason to `cerr`, returns `false`, and leaves the
+current weights unchanged. Too many values usually means the file belongs to
+a different architecture.
 
-### `void saveWeightsToFile(const string& filename)`
+### `size_t weightCount() const`
 
-Available in the training version. Opens the file for replacement and writes all
-weights in matrix order, separated by spaces. Layer sizes are not included.
-Default stream precision can introduce rounding when values are loaded again.
-The function returns no success flag and does not report an open or write failure.
+Returns the number of weights for the current architecture (see
+[weight format](#weight-format)).
+
+### `bool saveWeightsToFile(const string& filename) const`
+
+Available in the training version. Writes all weights in matrix order, one matrix
+per line, with `max_digits10` precision so that loading restores exactly the same
+`double` values. Layer sizes are not included. Data is written to `filename.tmp`
+first and then renamed over the target, so an interrupted save does not damage
+the previous file. Returns `true` on success; on an open, write, or rename failure
+prints the reason to `cerr` and returns `false`.
 
 ### `static double** allocateMatrix(int rows, int columns)` — private
 
@@ -224,10 +234,13 @@ destruction; it does not reset the caller's pointer.
 
 ### `int main()` in `NN_Training.cpp`
 
-Creates the `4 → 6 → 2 → 1` network, tries to load `weights.txt`, prepares ten
-training examples and their row pointers, and calls `train`. After training it
-prints predictions for those examples, saves weights again, and releases the
-example, target, and result arrays.
+Creates the `4 → 6 → 2 → 1` network. If `weights.txt` exists, loads it and
+continues training from those weights; if the file exists but is invalid, returns
+`1` without overwriting it. If there is no file, training starts from random
+weights. Then prepares ten training examples and their row pointers, and calls
+`train`. After training it prints predictions for those examples, saves weights
+again (returning `1` if saving fails), and releases the example, target, and
+result arrays.
 
 ### `int main()` in `nn_main.cpp`
 
@@ -235,9 +248,9 @@ Attempts to set a Russian locale, creates the same architecture, and loads
 `weights.txt`. Reads a nonnegative example count and four numbers per example.
 After reading all examples, prints predictions and frees its arrays.
 
-Zero examples are allowed. Invalid counts and invalid or incomplete numeric input
-print an error and return `1`. Valid input returns `0`; a missing weight file alone
-does not cause failure. With zero weights, each prediction is `0.5`.
+Zero examples are allowed. A missing or invalid `weights.txt`, invalid counts,
+and invalid or incomplete numeric input print an error and return `1`. Valid
+input returns `0`.
 
 ## Build and run
 
@@ -317,7 +330,8 @@ inputSize * hiddenSize1 + hiddenSize1 * hiddenSize2 + hiddenSize2 * outputSize
 ```
 
 For the default architecture: `4 * 6 + 6 * 2 + 2 * 1 = 38`.
-There are no headers, layer sizes, bias values, or other metadata.
+The training program writes each matrix on its own line, but any whitespace
+works when loading. There are no headers, layer sizes, bias values, or other metadata.
 Training and prediction must agree on both dimensions and matrix order.
 
 [Читать на русском](README.ru.md)

@@ -4,6 +4,7 @@
 //#include <ctime>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 #include <clocale>
 
 
@@ -86,34 +87,53 @@ public:
 
         delete[] buffer;
     }
-    void loadWeightsFromFile(const string& filename) {
+    // Читает веса во временный массив и копирует их в сеть только после полной
+    // проверки: при любой ошибке текущие веса остаются без изменений.
+    bool loadWeightsFromFile(const string& filename) {
         ifstream file(filename);
-        if (file.is_open()) {
-            // Загрузка весов для первого скрытого слоя
-            for (int i = 0; i < inputSize; ++i) {
-                for (int j = 0; j < hiddenSize1; ++j) {
-                    file >> weightsInputHidden1[i][j];
-                }
-            }
-
-            // Загрузка весов для второго скрытого слоя
-            for (int i = 0; i < hiddenSize1; ++i) {
-                for (int j = 0; j < hiddenSize2; ++j) {
-                    file >> weightsHidden1Hidden2[i][j];
-                }
-            }
-
-            // Загрузка весов для выходного слоя
-            for (int i = 0; i < hiddenSize2; ++i) {
-                for (int j = 0; j < outputSize; ++j) {
-                    file >> weightsHidden2Output[i][j];
-                }
-            }
-
-            file.close();
-        } else {
-            cerr << "Не удалось открыть файл с весами." << endl;
+        if (!file.is_open()) {
+            cerr << "Не удалось открыть файл с весами: " << filename << endl;
+            return false;
         }
+
+        const size_t count = weightCount();
+        double* values = new double[count];
+        for (size_t k = 0; k < count; ++k) {
+            if (!(file >> values[k]) || !isfinite(values[k])) {
+                cerr << "Файл весов повреждён или содержит меньше " << count << " чисел: " << filename << endl;
+                delete[] values;
+                return false;
+            }
+        }
+        double extra;
+        if (file >> extra || !file.eof()) {
+            cerr << "В файле весов больше " << count << " чисел или лишние данные"
+                 << " (другая архитектура сети?): " << filename << endl;
+            delete[] values;
+            return false;
+        }
+
+        size_t k = 0;
+        // Порядок: вход → скрытый слой 1, скрытый 1 → скрытый 2, скрытый 2 → выход.
+        for (int i = 0; i < inputSize; ++i)
+            for (int j = 0; j < hiddenSize1; ++j)
+                weightsInputHidden1[i][j] = values[k++];
+        for (int i = 0; i < hiddenSize1; ++i)
+            for (int j = 0; j < hiddenSize2; ++j)
+                weightsHidden1Hidden2[i][j] = values[k++];
+        for (int i = 0; i < hiddenSize2; ++i)
+            for (int j = 0; j < outputSize; ++j)
+                weightsHidden2Output[i][j] = values[k++];
+
+        delete[] values;
+        return true;
+    }
+
+    // Количество весов в файле для текущей архитектуры.
+    size_t weightCount() const {
+        return static_cast<size_t>(inputSize) * hiddenSize1
+             + static_cast<size_t>(hiddenSize1) * hiddenSize2
+             + static_cast<size_t>(hiddenSize2) * outputSize;
     }
 
 
@@ -163,7 +183,10 @@ int main() {
     int outputSize = 1;
 
     NeuralNetwork neuralNet(inputSize, hiddenSize1, hiddenSize2, outputSize);
-    neuralNet.loadWeightsFromFile("weights.txt");
+    // Без корректных весов предсказания бессмысленны (с нулевыми весами всегда 0.5).
+    if (!neuralNet.loadWeightsFromFile("weights.txt")) {
+        return 1;
+    }
 
     int N;
     cout << "Введите количество примеров: ";
